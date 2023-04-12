@@ -72,4 +72,4 @@ See the [Template Notes](/docs/template-notes/) section of the docs for info on 
 
 ## License
 
-Released under [MIT](/LICENSE) by [@MichaelCurrin](https://github.com/MichaelCurrin).
+Released under [MIT](/LICENSE)
