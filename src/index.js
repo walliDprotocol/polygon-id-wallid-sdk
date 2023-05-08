@@ -15,11 +15,26 @@ console.log("RHS_URL", process.env.RHS_URL);
   // .then(polygon.identityCreation())
   console.log("=====identityWallet=====\n", identityWallet);
 
-  let userWallet = await polygon.issueCredentialOriginal();
-  console.log("=====userWallet=====\n", userWallet);
+  let userDID = await polygon.createIdentity();
+  let issuerDID = await polygon.createIdentity();
+
+  let { credentials, txId } = await polygon.issueCredentialOriginal(
+    userDID,
+    issuerDID
+  );
+  console.log("=====credentials=====\n", credentials);
 
   let listCredentials = await polygon.listCredentials();
   console.log("=====listCredentials=====\n", listCredentials);
+
+  let zkp = await polygon.getZKP(
+    "KYCAgeCredential",
+    issuerDID,
+    userDID,
+    credentials,
+    txId
+  );
+  console.log("=====zkp=====\n", zkp);
 })();
 
 // polygon.issueCredentialOriginal();

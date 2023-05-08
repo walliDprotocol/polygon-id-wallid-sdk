@@ -16,6 +16,33 @@ const __dirname = dirname(__filename);
 import { config } from "dotenv";
 config();
 
+import {
+  IdentityStorage,
+  CredentialStorage,
+  BjjProvider,
+  KmsKeyType,
+  IdentityWallet,
+  CredentialWallet,
+  KMS,
+  InMemoryDataSource,
+  InMemoryMerkleTreeStorage,
+  EthStateStorage,
+  defaultEthConnectionConfig,
+  core,
+  InMemoryPrivateKeyStore,
+  CircuitStorage,
+  FSKeyLoader,
+  CircuitId,
+  ProofService,
+  AuthHandler,
+  PackageManager,
+  ZKPPacker,
+  PlainPacker,
+  DataPrepareHandlerFunc,
+  VerificationHandlerFunc,
+  VerifiableConstants,
+} from "../../../js-sdk/dist/cjs/index.js";
+
 const mockStateStorage = {
   provider: "https://matic-mumbai.chainstacklabs.com",
   getLatestStateById: async () => {
@@ -78,33 +105,6 @@ const getPackageMgr = async (circuitData, prepareFn, stateVerificationFn) => {
 
   return mgr;
 };
-
-import {
-  IdentityStorage,
-  CredentialStorage,
-  BjjProvider,
-  KmsKeyType,
-  IdentityWallet,
-  CredentialWallet,
-  KMS,
-  InMemoryDataSource,
-  InMemoryMerkleTreeStorage,
-  EthStateStorage,
-  defaultEthConnectionConfig,
-  core,
-  InMemoryPrivateKeyStore,
-  CircuitStorage,
-  FSKeyLoader,
-  CircuitId,
-  ProofService,
-  AuthHandler,
-  PackageManager,
-  ZKPPacker,
-  PlainPacker,
-  DataPrepareHandlerFunc,
-  VerificationHandlerFunc,
-  VerifiableConstants,
-} from "../../../js-sdk/dist/cjs/index.js";
 
 import { ethers } from "ethers";
 
@@ -186,6 +186,19 @@ export default class PolygonController {
         `${CircuitId.StateTransition.toString()}/circuit_final.zkey`
       ),
       verificationKey: await loader.load(
+        `${CircuitId.StateTransition.toString()}/verification_key.json`
+      ),
+    });
+
+    await circuitStorage.saveCircuitData(CircuitId.AtomicQueryMTPV2, {
+      circuitId: CircuitId.AtomicQueryMTPV2,
+      wasm: await loader.load(
+        `${CircuitId.AtomicQueryMTPV2.toString()}/circuit.wasm`
+      ),
+      provingKey: await loader.load(
+        `${CircuitId.AtomicQueryMTPV2.toString()}/circuit_final.zkey`
+      ),
+      verificationKey: await loader.load(
         `${CircuitId.AtomicQueryMTPV2.toString()}/verification_key.json`
       ),
     });
@@ -201,7 +214,6 @@ export default class PolygonController {
       this.identityWallet,
       this.credWallet,
       circuitStorage,
-      // mockStateStorage
       new EthStateStorage({
         ...defaultEthConnectionConfig,
         url: RPC_URL,
@@ -209,51 +221,22 @@ export default class PolygonController {
       })
     );
 
-    this.packageMgr = await getPackageMgr(
-      await circuitStorage.loadCircuitData(CircuitId.AuthV2),
-      this.proofService.generateAuthV2Inputs.bind(this.proofService),
-      this.proofService.verifyState.bind(this.proofService)
-    );
-    this.authHandler = new AuthHandler(
-      this.packageMgr,
-      this.proofService,
-      this.credWallet
-    );
+    // this.packageMgr = await getPackageMgr(
+    //   await circuitStorage.loadCircuitData(CircuitId.AtomicQuerySigV2),
+    //   this.proofService.generateAuthV2Inputs.bind(this.proofService),
+    //   this.proofService.verifyState.bind(this.proofService)
+    // );
+    // this.authHandler = new AuthHandler(
+    //   this.packageMgr,
+    //   this.proofService,
+    //   this.credWallet
+    // );
 
     return { identityWallet: this.identityWallet };
   }
 
-  async issueCredentialOriginal() {
+  async issueCredentialOriginal(userDID, issuerDID) {
     console.log("=============== issue credential ===============");
-
-    const { did: userDID } = await this.identityWallet.createIdentity({
-      method: core.DidMethod.Iden3,
-      blockchain: core.Blockchain.Polygon,
-      networkId: core.NetworkId.Mumbai,
-      // seed: seedPhrase,
-      revocationOpts: {
-        type: CredentialStatusType.Iden3ReverseSparseMerkleTreeProof,
-        baseUrl: RHS_URL,
-      },
-    });
-
-    console.log("=============== user did ===============");
-    console.log(userDID.toString());
-
-    const { did: issuerDID, credential } =
-      await this.identityWallet.createIdentity({
-        method: core.DidMethod.Iden3,
-        blockchain: core.Blockchain.Polygon,
-        networkId: core.NetworkId.Mumbai,
-        // seed: seedPhraseIssuer,
-        revocationOpts: {
-          type: CredentialStatusType.Iden3ReverseSparseMerkleTreeProof,
-          baseUrl: RHS_URL,
-        },
-      });
-
-    console.log("=============== issuerDID did ===============", credential);
-    console.log(issuerDID.toString());
 
     const claimReq = {
       credentialSchema:
@@ -300,7 +283,7 @@ export default class PolygonController {
       "================= generate Iden3SparseMerkleTreeProof ======================="
     );
 
-    const { oldTreeState } =
+    const { oldTreeState, credentials } =
       await this.identityWallet.addCredentialsToMerkleTree(
         [issuerCred],
         issuerDID
@@ -330,23 +313,63 @@ export default class PolygonController {
     console.log("================= transaction hash ===================");
     console.log(txId);
 
+    // now we try to get the zkp(zero knowledge proof)
     //#region
-    // const proofReq = {
-    //   id: 1,
-    //   circuitId: CircuitId.AtomicQuerySigV2,
-    //   optional: false,
-    //   query: {
-    //     allowedIssuers: ["*"],
-    //     type: claimReq.type,
-    //     context:
-    //       "https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld",
-    //     credentialSubject: {
-    //       documentType: {
-    //         $eq: 99,
-    //       },
-    //     },
-    //   },
-    // };
+
+    //#endregion
+
+    return { credentials, txId };
+  }
+  async getZKP(credentialType, issuerDID, userDID, credentials, txId) {
+    // const credsWithIden3MTPProof =
+    //   await this.identityWallet.generateIden3SparseMerkleTreeProof(
+    //     issuerDID,
+    //     credentials,
+    //     txId
+    //   );
+
+    // console.log(credsWithIden3MTPProof);
+    // this.credWallet.saveAll(credsWithIden3MTPProof);
+
+    const proofReq = {
+      id: 1,
+      circuitId: CircuitId.AtomicQuerySigV2,
+      optional: false,
+      query: {
+        allowedIssuers: ["*"],
+        type: credentialType,
+        context:
+          "https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld",
+        credentialSubject: {
+          documentType: {
+            $eq: 99,
+          },
+        },
+      },
+    };
+
+    // find and choose credential to generate proof
+    let credsToChooseForZKPReq = await this.credWallet.findByQuery(
+      proofReq.query
+    );
+
+    console.log("credsToChooseForZKPReq: ", credsToChooseForZKPReq);
+
+    const { proof, pub_signals } = await this.proofService.generateProof(
+      proofReq,
+      userDID,
+      credsToChooseForZKPReq[0] // e.g. user chose first
+    );
+
+    console.log("proof: ", proof, pub_signals);
+
+    const sigProofOk = await this.proofService.verifyProof(
+      { proof, pub_signals },
+      CircuitId.AtomicQueryMTPV2
+    );
+    console.log("valid: ", sigProofOk);
+
+    return sigProofOk;
 
     // const authReqBody = {
     //   callbackUrl: "http://localhost:8080/callback?id=1234442-123123-123123",
@@ -356,7 +379,6 @@ export default class PolygonController {
     //   scope: [proofReq],
     // };
 
-    // const id = uuid.v4();
     // const authReq = {
     //   id,
     //   typ: "application/iden3comm-plain-json",
@@ -375,12 +397,27 @@ export default class PolygonController {
 
     // const tokenStr = authRes.token;
     // console.log("tokenStr", tokenStr);
-    // console.log(assert(typeof tokenStr == "string"));
+    // console.log(typeof tokenStr == "string");
     // const token = await Token.parse(tokenStr);
-    // console.log(assert(typeof token == "object"));
-    //#endregion
+    // console.log("token", token);
+    // console.log(typeof token == "object");
   }
+  async createIdentity() {
+    const { did } = await this.identityWallet.createIdentity({
+      method: core.DidMethod.Iden3,
+      blockchain: core.Blockchain.Polygon,
+      networkId: core.NetworkId.Mumbai,
+      // seed: seedPhrase,
+      revocationOpts: {
+        type: CredentialStatusType.Iden3ReverseSparseMerkleTreeProof,
+        baseUrl: RHS_URL,
+      },
+    });
 
+    console.log("=============== did ===============");
+    console.log(did.toString());
+    return did;
+  }
   listCredentials() {
     return this.credWallet.list();
   }
